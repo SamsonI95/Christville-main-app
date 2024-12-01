@@ -10,54 +10,56 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/robfig/cron/v3"
-	
 )
+
+func fetchAndLogBibleVerse() {
+	log.Println("Starting the cron job to fetch daily Bible verse...")
+	bibleVerse, err := controllers.FetchRandomBibleVerse()
+	if err != nil {
+		log.Printf("Error fetching daily Bible verse: %v\n", err)
+		return
+	}
+	log.Printf("Successfully fetched and saved Bible verse: %s - %s\n", bibleVerse.Reference, bibleVerse.Text)
+}
 
 func main() {
 	// Connect to MongoDB
 	client, err := db.ConnectMongoDB()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error connecting to MongoDB: %v\n", err)
 	}
-	defer client.Disconnect(context.Background())
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			log.Printf("Error disconnecting MongoDB: %v\n", err)
+		}
+	}()
 
-
+	// Initialize Gin router
 	router := gin.Default()
 
 	// Setup routes
 	routes.SetupRoutes(router)
 
-
-	log.Println("Adding cron job...")
-	c := cron.New(cron.WithSeconds()) // Enable seconds precision for cron expressions
-
-	_, err = c.AddFunc("0 0 0 * * *", func() { // Runs daily at midnight
-		log.Println("Cron job triggered: Running daily Bible verse fetch...")
-	
-		// Fetch and store new random Bible verse from external API via combined function.
-		_, err := controllers.FetchRandomBibleVerse()
-		if err != nil {
-			log.Printf("Error fetching and storing Bible verse: %v", err)
-			return
-		}
-	
-		log.Println("Successfully fetched and stored new daily Bible verse.")
-	})
-
+	// Initialize the cron job scheduler
+	c := cron.New(cron.WithSeconds())
+	_, err = c.AddFunc("@daily", fetchAndLogBibleVerse) // Runs every day at midnight
 	if err != nil {
-		log.Fatalf("Error adding cron job: %v", err)
-	} else {
-		log.Println("Cron job added successfully")
+		log.Fatalf("Failed to schedule cron job: %v\n", err)
 	}
+	c.Start()
+	defer c.Stop()
 
-	c.Start() // Start the cron scheduler
-
+	// Start the HTTP server in a goroutine
 	go func() {
-		log.Println("BossBlock Server started on port 8080...")
+		log.Println("BossBlock server started on port 8080...")
 		if err := http.ListenAndServe(":8080", router); err != nil {
-			log.Fatal(err)
+			log.Fatalf("Error starting server: %v\n", err)
 		}
 	}()
 
-	select {} // Block forever to keep both cron and HTTP server running
+	// Test the cron job immediately for debugging purposes
+	fetchAndLogBibleVerse()
+
+	// Block forever to keep server and cron running
+	select {}
 }

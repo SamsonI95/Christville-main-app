@@ -40,7 +40,7 @@ func FetchRandomBibleVerse() (model.BibleVerse, error) {
 
 	
 	client := db.GetClient() // Get the MongoDB client instance
-	database := client.Database("Christville") // Replace with your actual database name
+	database := client.Database("Christville") 
 
 	update := bson.M{
 		"$set": bson.M{
@@ -65,6 +65,12 @@ func FetchRandomBibleVerse() (model.BibleVerse, error) {
     }
 
 	return bibleVerse, nil
+}
+
+func BibleVerseDemo(c *gin.Context){
+	verse, _ := FetchRandomBibleVerse()
+
+	c.JSON(http.StatusOK, verse)
 }
 
 

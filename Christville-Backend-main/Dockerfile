@@ -1,26 +1,23 @@
-# Build stage
-FROM --platform=linux/amd64 golang:latest AS builder
+# Use the official Go image as the base image
+FROM golang:1.22
+
+# Set the working directory inside the container
 WORKDIR /app
 
-# Declare the build argument
-ARG DATABASE_NAME
-
+# Copy go.mod and go.sum files to the working directory
 COPY go.mod go.sum ./
+
+# Download dependencies
 RUN go mod download
+
+# Copy the source code into the container
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o app .
 
-# Final stage
-FROM --platform=linux/amd64 alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
+# Build the Go application
+RUN go build -o main .
 
-# Set environment variable from build argument
-ARG DATABASE_NAME
-ENV DATABASE_NAME=${DATABASE_NAME}
-
-
-COPY --from=builder /app/app .
-RUN echo "DATABASE_NAME=${DATABASE_NAME}" > .env
+# Expose port 8080 for the application
 EXPOSE 8080
-CMD ["./app"]
+
+# Command to run the application
+CMD ["./main"]

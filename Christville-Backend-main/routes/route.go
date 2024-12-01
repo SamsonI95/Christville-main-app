@@ -12,7 +12,7 @@ import (
 func SetupRoutes(router *gin.Engine) {
 	// Add CORS middleware
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -26,8 +26,9 @@ func SetupRoutes(router *gin.Engine) {
 	router.GET("/referred-users/:userId", controllers.GetReferredUsers)
 	router.POST("/claim-daily-bonus/:userId", controllers.ClaimDailyBonus)
 
-	// Game routes
+	// BBible Verse routes
 	router.GET("/daily-verse", controllers.GetDailyBibleVerse)
+	// router.GET("/random-verse", controllers.BibleVerseDemo)
 
 	// Leaderboard routes
 	router.GET("/leaderboard", controllers.GetLeaderboard)
