@@ -1,4 +1,4 @@
-module bossblock
+module christville
 
 go 1.21
 

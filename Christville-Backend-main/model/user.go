@@ -1,7 +1,7 @@
 package model
 
 import (
-	"bossblock/db"
+	"christville/db"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -29,6 +29,7 @@ type User struct {
 	
 	CreatedAt        time.Time          `bson:"created_at,omitempty" json:"createdAt,omitempty"`
 	UpdatedAt        time.Time          `bson:"updated_at,omitempty" json:"updatedAt,omitempty"`
+	BonusClaimedAt   time.Time 			`bson:"bonus_claimed_at,omitempty" json:"bonus_claimed_at,omitempty"`
 }
 
 

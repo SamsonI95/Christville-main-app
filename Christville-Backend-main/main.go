@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bossblock/controllers"
-	"bossblock/db"
-	"bossblock/routes"
+	"christville/controllers"
+	"christville/db"
+	"christville/routes"
 	"context"
 	"log"
 	"net/http"
@@ -51,7 +51,7 @@ func main() {
 
 	// Start the HTTP server in a goroutine
 	go func() {
-		log.Println("BossBlock server started on port 8080...")
+		log.Println("Christville server started on port 8080...")
 		if err := http.ListenAndServe(":8080", router); err != nil {
 			log.Fatalf("Error starting server: %v\n", err)
 		}

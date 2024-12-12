@@ -6,8 +6,8 @@ import (
 	"time"
 	"log"
 
-	"bossblock/db"
-	"bossblock/model"
+	"christville/db"
+	"christville/model"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"

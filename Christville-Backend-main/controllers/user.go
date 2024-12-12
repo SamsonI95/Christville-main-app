@@ -1,12 +1,11 @@
 package controllers
 
 import (
-	"bossblock/db"
-	"bossblock/model"
+	"christville/db"
+	"christville/model"
 	"context"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -25,71 +24,73 @@ func init() {
 }
 
 func GetOrCreateUser(c *gin.Context) {
-	var input struct {
-		TelegramID  string `json:"telegramId" binding:"required"`
-		Username    string `json:"username"`
-		ReferralKey string `json:"referralKey"`
-	}
+    var input struct {
+        TelegramID  string `json:"telegramId" binding:"required"`
+        Username    string `json:"username"`
+        ReferralKey string `json:"referralKey"`
+    }
 
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	client := db.GetClient()
-	usersCollection := client.Database("Christville").Collection("users")
-	referralsCollection := client.Database("Christville").Collection("referrals")
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
 
-	var user model.User
-	err := usersCollection.FindOne(context.Background(), bson.M{"telegram_id": input.TelegramID}).Decode(&user)
+    client := db.GetClient()
+    usersCollection := client.Database("Christville").Collection("users")
+    referralsCollection := client.Database("Christville").Collection("referrals")
 
-	if err == mongo.ErrNoDocuments {
-	
-		newUser := model.User{
-			TelegramID:     input.TelegramID,
-			Username:       input.Username,
-			TokenCount:     0,
-			DailyVerseSeen: false, 
-			QuizCompleted:  false, 
-			QuizScore:      0,    
-			LastLogin:      time.Now(),
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
-		}
+    var user model.User
+    err := usersCollection.FindOne(context.Background(), bson.M{"telegram_id": input.TelegramID}).Decode(&user)
 
-		referralKey, err := generateUniqueReferralKey(usersCollection)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate referral key"})
-			return
-		}
-		newUser.ReferralKey = referralKey
+    if err == mongo.ErrNoDocuments {
+        // Create a new user
+        newUser := model.User{
+            TelegramID:     input.TelegramID,
+            Username:       input.Username,
+            TokenCount:     0,
+            DailyVerseSeen: false,
+            QuizCompleted:  false,
+            QuizScore:      0,
+            LastLogin:      time.Now(),
+            CreatedAt:      time.Now(),
+            UpdatedAt:      time.Now(),
+            BonusClaimedAt: time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC),
+        }
 
-		var referrer model.User
-		if input.ReferralKey != "" {
-			err := usersCollection.FindOne(context.Background(), bson.M{"referral_key": input.ReferralKey}).Decode(&referrer)
-			if err == nil {
-				newUser.ReferredBy = referrer.ID.Hex()
+        // Generate a unique referral key
+        referralKey, err := generateUniqueReferralKey(usersCollection)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate referral key"})
+            return
+        }
+        newUser.ReferralKey = referralKey
 
-				// Award referral bonus to the new user (adjust rewards as needed)
-				newUser.TokenCount += 500 // Example reward for being referred
+        // Handle referral logic if a referral key is provided
+        var referrer model.User
+        if input.ReferralKey != "" {
+            err := usersCollection.FindOne(context.Background(), bson.M{"referral_key": input.ReferralKey}).Decode(&referrer)
+            if err == nil {
+                newUser.ReferredBy = referrer.ID.Hex()
 
-				// Award referral bonus to the referrer (adjust rewards as needed)
-				referrerUpdate := bson.M{
-					"$inc": bson.M{
-						"token_count": 500, // Example reward for referring someone
-					},
-				}
-				_, err = usersCollection.UpdateOne(context.Background(), bson.M{"telegram_id": referrer.TelegramID}, referrerUpdate)
-				if err != nil {
-					log.Printf("Failed to update referrer's bonus: %v", err)
-				}
-			}
-		}
+                // Award referral bonuses
+                newUser.TokenCount += 200 // Example reward for being referred
+                referrerUpdate := bson.M{
+                    "$inc": bson.M{"token_count": 300}, // Example reward for referring someone
+                }
+                _, err = usersCollection.UpdateOne(context.Background(), bson.M{"telegram_id": referrer.TelegramID}, referrerUpdate)
+                if err != nil {
+                    log.Printf("Failed to update referrer's bonus: %v", err)
+                }
+            }
+        }
 
-		_, err = usersCollection.InsertOne(context.Background(), newUser)
+        // Insert the new user and capture the inserted ID
+        insertResult, err := usersCollection.InsertOne(context.Background(), newUser)
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
             return
         }
+        newUser.ID = insertResult.InsertedID.(primitive.ObjectID)
 
         // Insert referral entry if applicable
         if newUser.ReferredBy != "" {
@@ -107,19 +108,20 @@ func GetOrCreateUser(c *gin.Context) {
         }
 
         c.JSON(http.StatusCreated, gin.H{
-            "user":    newUser,
-            "isNew":   true,
+            "user":  newUser,
+            "isNew": true,
         })
     } else if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
         return
     } else {
         c.JSON(http.StatusOK, gin.H{
-            "user":   user,
-            "isNew":  false,
+            "user":  user,
+            "isNew": false,
         })
     }
 }
+
 
 func GetUserByID(c *gin.Context) {
 	client := db.GetClient()
@@ -183,11 +185,9 @@ func GetReferredUsers(c *gin.Context) {
 
 	skip := (page - 1) * pageSize
 
-	databaseName := os.Getenv("Christville")
 	client := db.GetClient()
-	referralsCollection := client.Database(databaseName).Collection("referrals")
-	usersCollection := client.Database(databaseName).Collection("users")
-	referralEarningsCollection := client.Database(databaseName).Collection("referral_earnings")
+	referralsCollection := client.Database("Christville").Collection("referrals")
+	usersCollection := client.Database("Christville").Collection("users")
 
 	// Count total documents
 	totalCount, err := referralsCollection.CountDocuments(context.Background(), bson.M{"referrer_id": objectID})
@@ -219,52 +219,27 @@ func GetReferredUsers(c *gin.Context) {
 		return
 	}
 
-	twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
-
 	var response []gin.H
-	var totalRecentEarnings int
 	for _, referral := range referrals {
 		var user model.User
 		err := usersCollection.FindOne(context.Background(), bson.M{"_id": referral.ReferredID}).Decode(&user)
 		if err != nil {
 			continue // Skip this user if not found
 		}
-		//TODO: BATCHES FOR ALL DATA
 
-		
-		// Get recent earnings from referral_earnings
-		var recentEarnings model.ReferralEarnings
-		err = referralEarningsCollection.FindOne(
-			context.Background(),
-			bson.M{
-				"referrer_id":    objectID,
-				"referred_id":    referral.ReferredID,
-				"last_earned_at": bson.M{"$gte": twentyFourHoursAgo},
-			},
-		).Decode(&recentEarnings)
-
-		if err != nil && err != mongo.ErrNoDocuments {
-			log.Printf("Error fetching recent earnings: %v", err)
-		}
-
-		totalRecentEarnings += recentEarnings.CoinsEarned
-
-		response = append(response, gin.H{
-			"id":             user.ID,
-			"telegramId":     user.TelegramID,
-			"username":       user.Username,
-			"tokenCount":      user.TokenCount,
-			"totalEarned":    referral.CoinsEarned,
-			"recentEarnings": recentEarnings.CoinsEarned,
-		})
-	}
+        // Prepare response data with only the necessary user information
+        response = append(response, gin.H{
+            "id":       user.ID,
+            "username": user.Username,
+        })
+    }
 
 	c.JSON(http.StatusOK, gin.H{
-		"referredUsers":       response,
-		"pagination":          getPaginationInfo(page, pageSize, int(totalCount)),
-		"totalRecentEarnings": totalRecentEarnings,
-	})
+        "referredUsers": response,
+        "pagination":    getPaginationInfo(page, pageSize, int(totalCount)),
+    })
 }
+
 
 func getPaginationInfo(page, pageSize, totalCount int) gin.H {
 	totalPages := (totalCount + pageSize - 1) / pageSize
@@ -277,12 +252,11 @@ func getPaginationInfo(page, pageSize, totalCount int) gin.H {
 }
 
 func ClaimDailyBonus(c *gin.Context) {
-
     client := db.GetClient()
     database := client.Database("Christville")
 
     userID := c.Param("userId")
-    log.Println("User ID:", userID)  // Debugging step
+    log.Println("User ID:", userID)
 
     // Convert user ID to ObjectID
     objectID, err := primitive.ObjectIDFromHex(userID)
@@ -290,51 +264,53 @@ func ClaimDailyBonus(c *gin.Context) {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
         return
     }
-    log.Println("Object ID:", objectID.Hex())  // Debugging step
 
     // Fetch user from database
     var user model.User
     err = database.Collection("users").FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&user)
     if err != nil {
-        log.Printf("Failed to fetch user with ID %s: %v", objectID.Hex(), err)  // Debugging step
         c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
         return
     }
 
-    now := time.Now()
-    today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+    // Define the current time and today's date at midnight, in UTC
+    now := time.Now().UTC() // Ensure current time is UTC
+    today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC) // Set today to midnight in UTC
 
-    // Check if daily bonus has already been claimed today
-    if !user.LastLogin.Before(today) {
+    log.Printf("BonusClaimedAt: %v, Today: %v", user.BonusClaimedAt, today)
+
+    // Check if the bonus has already been claimed today
+    if user.BonusClaimedAt.UTC().Year() == today.Year() && user.BonusClaimedAt.UTC().YearDay() == today.YearDay() {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Daily bonus already claimed today"})
         return
     }
 
-    // Set daily bonus amount (you can adjust this as needed)
-    bonusTokens := 100 // Example: give 100 tokens as a daily bonus
+    // Set daily bonus amount
+    bonusTokens := 100
 
-    // Update user data with new token count and last login date
-    userUpdate := bson.M{
-        "$inc": bson.M{
-            "token_count": bonusTokens,
-        },
+    // Update the database with the new bonus claim time and increment tokens
+    update := bson.M{
         "$set": bson.M{
-            "last_login": today,
+            "bonus_claimed_at": now, // Update bonus claim timestamp
+        },
+        "$inc": bson.M{
+            "token_count": bonusTokens, // Increment token count by bonus amount
         },
     }
 
-    _, err = database.Collection("users").UpdateOne(context.Background(), bson.M{"_id": objectID}, userUpdate)
+    _, err = database.Collection("users").UpdateOne(context.Background(), bson.M{"_id": objectID}, update)
     if err != nil {
+        log.Printf("Failed to update user: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
         return
     }
 
+    // Respond with success
     c.JSON(http.StatusOK, gin.H{
-        "message":    "Daily bonus claimed successfully",
+        "message":     "Daily bonus claimed successfully",
         "bonusTokens": bonusTokens,
     })
 }
-
 
 
 func GetLeaderboard(c *gin.Context) {
@@ -418,4 +394,196 @@ func GetLeaderboard(c *gin.Context) {
 		},
 		"currentUserRank": currentUserRank,
 	})
+}
+
+func ClaimTwitterBonus(c *gin.Context){
+
+	client := db.GetClient()
+	database := client.Database("Christville")
+
+	userID := c.Param("userId")
+	log.Println("User ID:", userID)
+
+	// Convert user ID to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user from database
+	var user model.User
+	err = database.Collection("users").FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	
+	bonusTokens := 150
+
+	update := bson.M{
+
+		"$inc": bson.M{
+			"token_count": bonusTokens, 
+		},
+	}
+
+	_, err = database.Collection("users").UpdateOne(context.Background(), bson.M{"_id": objectID}, update)
+	if err != nil {
+		log.Printf("Failed to update user: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		return
+	}
+
+	// Respond with success
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Twitter bonus claimed",
+		"bonusTokens": bonusTokens,
+	})
+	
+}
+
+func ClaimTgBonus(c *gin.Context){
+
+	client := db.GetClient()
+	database := client.Database("Christville")
+
+	userID := c.Param("userId")
+	log.Println("User ID:", userID)
+
+	// Convert user ID to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user from database
+	var user model.User
+	err = database.Collection("users").FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	
+	bonusTokens := 150
+
+	update := bson.M{
+
+		"$inc": bson.M{
+			"token_count": bonusTokens, 
+		},
+	}
+
+	_, err = database.Collection("users").UpdateOne(context.Background(), bson.M{"_id": objectID}, update)
+	if err != nil {
+		log.Printf("Failed to update user: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		return
+	}
+
+	// Respond with success
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Telegram bonus claimed",
+		"bonusTokens": bonusTokens,
+	})
+	
+}
+
+func Invite3Bonus(c *gin.Context){
+
+	client := db.GetClient()
+	database := client.Database("Christville")
+
+	userID := c.Param("userId")
+	log.Println("User ID:", userID)
+
+	// Convert user ID to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user from database
+	var user model.User
+	err = database.Collection("users").FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	
+	bonusTokens := 100
+
+	update := bson.M{
+
+		"$inc": bson.M{
+			"token_count": bonusTokens, 
+		},
+	}
+
+	_, err = database.Collection("users").UpdateOne(context.Background(), bson.M{"_id": objectID}, update)
+	if err != nil {
+		log.Printf("Failed to update user: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		return
+	}
+
+	// Respond with success
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Invite bonus claimed",
+		"bonusTokens": bonusTokens,
+	})
+	
+}
+
+func Invite7Bonus(c *gin.Context){
+
+	client := db.GetClient()
+	database := client.Database("Christville")
+
+	userID := c.Param("userId")
+	log.Println("User ID:", userID)
+
+	// Convert user ID to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Fetch user from database
+	var user model.User
+	err = database.Collection("users").FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	
+	bonusTokens := 160
+
+	update := bson.M{
+
+		"$inc": bson.M{
+			"token_count": bonusTokens, 
+		},
+	}
+
+	_, err = database.Collection("users").UpdateOne(context.Background(), bson.M{"_id": objectID}, update)
+	if err != nil {
+		log.Printf("Failed to update user: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		return
+	}
+
+	// Respond with success
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Invite bonus claimed",
+		"bonusTokens": bonusTokens,
+	})
+	
 }

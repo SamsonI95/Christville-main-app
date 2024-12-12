@@ -1,8 +1,8 @@
 package controllers
 
 import (
-	"bossblock/db"
-	"bossblock/model"
+	"christville/db"
+	"christville/model"
 	"context"
 	"log"
 	"net/http"
